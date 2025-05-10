@@ -56,27 +56,37 @@ void shell_pwd() {
 }
 
 void execute_command(char *line) {
-    char *args[MAX_ARGS];
-    int is_background = parse_command(line, args);
-    if (args[0] == NULL) {
+    if (strchr(line, '|') != NULL) {
+        execute_pipeline(line);
         return;
     }
+
+    char *args[MAX_ARGS];
+    int is_background = parse_command(line, args);
+    if (args[0] == NULL) return;
+
     if (strcmp(args[0], "cd") == 0) {
         shell_cd(args);
-    } else if (strcmp(args[0], "pwd") == 0) {
+    } 
+    else if (strcmp(args[0], "pwd") == 0) {
         shell_pwd();
-    } else if (strcmp(args[0], "exit") == 0) {
+    } 
+    else if (strcmp(args[0], "exit") == 0) {
+        printf("Bye!\n");
         exit(0);
-    } else {
+    } 
+    else {
         pid_t pid = fork();
         if (pid == 0) {
             execvp(args[0], args);
             perror("exec");
             exit(1);
-        } else {
+        } 
+        else {
             if (!is_background) {
-                waitpid(pid, NULL, 0);  // 포그라운드면 기다리기
-            } else {
+                waitpid(pid, NULL, 0);
+            } 
+            else {
                 printf("[백그라운드 pid: %d]\n", pid);
             }
         }
@@ -94,6 +104,61 @@ void execute_line(char *line) {
         command = strtok(NULL, ";");
     }
 }
+
+
+void execute_pipeline(char *line) {
+    char *commands[10];  // 최대 파이프 : 10개 
+    int cmd_count = 0;
+
+    // | 기준으로 명령어 분리
+    commands[cmd_count] = strtok(line, "|");
+    while (commands[cmd_count] != NULL && cmd_count < 9) {
+        cmd_count++;
+        commands[cmd_count] = strtok(NULL, "|");
+    }
+
+    int pipes[2 * (cmd_count - 1)];
+
+    // 파이프 생성
+    for (int i = 0; i < cmd_count - 1; i++) {
+        pipe(pipes + i*2);
+    }
+
+    for (int i = 0; i < cmd_count; i++) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            // 입출력 연결
+            if (i > 0) {
+                dup2(pipes[(i - 1)*2], 0);  
+            }
+            if (i < cmd_count - 1) {
+                dup2(pipes[i*2 + 1], 1);    
+            }
+
+            // 모든 pipe 닫기
+            for (int j = 0; j < 2*(cmd_count - 1); j++) {
+                close(pipes[j]);
+            }
+
+            // 명령어 
+            char *args[MAX_ARGS];
+            parse_command(commands[i], args);
+            execvp(args[0], args);
+            perror("exec");
+            exit(1);
+        }
+    }
+
+    // pipe 닫기
+    for (int i = 0; i < 2*(cmd_count - 1); i++) {
+        close(pipes[i]);
+    }
+
+    for (int i = 0; i < cmd_count; i++) {
+        wait(NULL);
+    }
+}
+
 
 int execute_conditional_line(char *line) {
     char *token;
